@@ -19,10 +19,7 @@ N = 4  # N = number of effects
 # Now define the Desired Area of each effect
 A_1d, A_2d, A_3d, A_4d, A_5d = 72000, 48000, 46000, 46000, 5900 # ft²
 
-    # St Mary's Evaporators... Normal Operations Effect 1 = 72000, Effect 2 = 48000, Effect 3 = 46000, Effect 4 = 46000
-         # Wash Pre3.. Effect 1 = 37000, Effect 2 = 48000, Effect 3 = 46000, Effect 4 = 46000
-         # Wash Pre1.. Effect 1 = 47000, Effect 2 = 48000, Effect 3 = 46000, Effect 4 = 46000
-         # Wash Big Set (set 1)... Effect 1 = 72000, Effect 2 = 23000, Effect 3 = 21000, Effect 4 = 21000
+    
 
     # Note that for a triple, A_4d and A_5d are not used, for a quad A_5d is not used
 
@@ -827,6 +824,7 @@ else:
 end_time = time.time()
 elapsed_time = end_time - start_time
 print(f"Time to Solve in seconds: {elapsed_time:,.4f} ")
+
 
 
 
