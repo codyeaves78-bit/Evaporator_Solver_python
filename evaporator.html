@@ -1,0 +1,997 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Multiple-Effect Evaporator Solver</title>
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+    body { font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; background: #edf0f4; color: #222; font-size: 14px; }
+
+    header {
+      background: #1a3a5c; color: #fff;
+      padding: 0.9rem 1.5rem;
+      display: flex; align-items: baseline; gap: 1.2rem;
+    }
+    header h1 { font-size: 1.25rem; font-weight: 700; }
+    header p  { font-size: 0.78rem; opacity: 0.75; }
+
+    .container { max-width: 1500px; margin: 0 auto; padding: 1rem 1.2rem; }
+
+    /* ── Input grid ── */
+    .input-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fill, minmax(260px, 1fr));
+      gap: 0.75rem;
+      margin-bottom: 0.75rem;
+    }
+    .card {
+      background: #fff;
+      border-radius: 7px;
+      padding: 0.85rem 1rem;
+      box-shadow: 0 1px 3px rgba(0,0,0,.12);
+    }
+    .card h3 {
+      font-size: 0.8rem; font-weight: 700; letter-spacing: .03em;
+      color: #1a3a5c;
+      border-bottom: 2px solid #1a3a5c;
+      padding-bottom: 0.3rem; margin-bottom: 0.65rem;
+      text-transform: uppercase;
+    }
+    .field { margin-bottom: 0.45rem; }
+    .field label { display: block; font-size: 0.72rem; color: #555; margin-bottom: 0.1rem; }
+    .field input[type="number"],
+    .field input[type="text"] {
+      width: 100%; padding: 0.28rem 0.45rem;
+      border: 1px solid #c8cdd4; border-radius: 4px;
+      font-size: 0.82rem; background: #fafbfc;
+      transition: border-color .15s;
+    }
+    .field input:focus { outline: none; border-color: #1a3a5c; background: #fff; }
+    .unit { font-size: 0.68rem; color: #888; }
+    .check-label { display: flex; align-items: center; gap: 0.4rem; font-size: 0.8rem; font-weight: 600; cursor: pointer; }
+    .check-label input[type="checkbox"] { width: 15px; height: 15px; accent-color: #1a3a5c; cursor: pointer; }
+
+    /* ── Solve bar ── */
+    .solve-bar {
+      display: flex; align-items: center; gap: 1rem;
+      margin: 0.5rem 0 1rem;
+    }
+    .btn-solve {
+      background: #1a3a5c; color: #fff;
+      border: none; padding: 0.55rem 2rem;
+      font-size: 0.95rem; font-weight: 600; border-radius: 5px;
+      cursor: pointer; transition: background .15s;
+    }
+    .btn-solve:hover { background: #234e7a; }
+    .btn-solve:active { background: #102840; }
+    #status { font-size: 0.82rem; color: #555; }
+
+    /* ── Results ── */
+    #results { margin-top: 0.5rem; }
+
+    .result-card {
+      background: #fff; border-radius: 7px;
+      padding: 1rem 1.2rem;
+      box-shadow: 0 1px 3px rgba(0,0,0,.12);
+      margin-bottom: 0.9rem;
+    }
+    .result-card h2 {
+      font-size: 0.95rem; font-weight: 700;
+      color: #1a3a5c; margin-bottom: 0.4rem;
+    }
+    .meta { font-size: 0.75rem; color: #666; margin-bottom: 0.7rem; }
+
+    .result-table-wrap { overflow-x: auto; }
+
+    table { border-collapse: collapse; font-size: 0.75rem; white-space: nowrap; }
+    th, td { padding: 0.27rem 0.65rem; border: 1px solid #dde1e7; }
+    thead th {
+      background: #1a3a5c; color: #fff;
+      font-weight: 600; text-align: left;
+      position: sticky; top: 0;
+    }
+    thead th:first-child { min-width: 220px; }
+    tbody tr:nth-child(even) { background: #f5f7fa; }
+    tbody tr:hover { background: #eaf0f8; }
+
+    .sep-row td { background: #dde1e7 !important; color: #888; font-style: italic; }
+    .hi-row td  { background: #fff8e1 !important; font-weight: 700; }
+    .hi-row:hover td { background: #fff3c4 !important; }
+
+    .conv-ok   { padding: 0.45rem 0.75rem; border-radius: 4px; font-size: 0.82rem; margin-bottom: 0.75rem; background: #d4edda; color: #155724; }
+    .conv-fail { padding: 0.45rem 0.75rem; border-radius: 4px; font-size: 0.82rem; margin-bottom: 0.75rem; background: #f8d7da; color: #721c24; }
+    .conv-info { padding: 0.45rem 0.75rem; border-radius: 4px; font-size: 0.82rem; margin-bottom: 0.75rem; background: #d1ecf1; color: #0c5460; }
+
+    .elapsed { font-size: 0.75rem; color: #999; text-align: right; margin-top: 0.3rem; }
+  </style>
+</head>
+<body>
+
+<header>
+  <h1>Multiple-Effect Evaporator Solver</h1>
+  <p>Harold Birkett's method &mdash; extended for multiple parallel sets &mdash; Sugar Industry &mdash; US Customary units</p>
+</header>
+
+<div class="container">
+
+  <!-- ═══════════════ INPUT PANEL ═══════════════ -->
+  <div class="input-grid">
+
+    <!-- Feed Juice -->
+    <div class="card">
+      <h3>Feed Juice</h3>
+      <div class="field">
+        <label>Flow Rate <span class="unit">(tph)</span></label>
+        <input type="number" id="cj_tph"    value="750"  step="1">
+      </div>
+      <div class="field">
+        <label>Brix <span class="unit">(%)</span></label>
+        <input type="number" id="cj_brix"   value="14"   step="0.1">
+      </div>
+      <div class="field">
+        <label>Temperature <span class="unit">(°F)</span></label>
+        <input type="number" id="cj_temp"   value="225"  step="1">
+      </div>
+      <div class="field">
+        <label>Target Syrup Brix <span class="unit">(%)</span></label>
+        <input type="number" id="syrup_brix" value="65"  step="0.1">
+      </div>
+    </div>
+
+    <!-- Condenser -->
+    <div class="card">
+      <h3>Condenser (Injection Water)</h3>
+      <div class="field">
+        <label>Inlet Temperature <span class="unit">(°F)</span></label>
+        <input type="number" id="inj_in"  value="95"  step="1">
+      </div>
+      <div class="field">
+        <label>Outlet Temperature <span class="unit">(°F)</span></label>
+        <input type="number" id="inj_out" value="120" step="1">
+      </div>
+    </div>
+
+    <!-- Pre-Evaporator -->
+    <div class="card">
+      <h3>Pre-Evaporator</h3>
+      <div class="field">
+        <label class="check-label">
+          <input type="checkbox" id="pre3_online">
+          Online
+        </label>
+      </div>
+      <div class="field">
+        <label>Exhaust Pressure <span class="unit">(psig)</span></label>
+        <input type="number" id="pre3_psig"   value="14"    step="1">
+      </div>
+      <div class="field">
+        <label>Vapor Bleed <span class="unit">(tph)</span></label>
+        <input type="number" id="pre3_bleed"  value="122"   step="1">
+      </div>
+      <div class="field">
+        <label>Heating Surface <span class="unit">(ft²)</span></label>
+        <input type="number" id="pre3_hs"     value="35000" step="100">
+      </div>
+      <div class="field">
+        <label>Dessin Constant</label>
+        <input type="number" id="pre3_dessin" value="18000" step="100">
+      </div>
+      <div class="field">
+        <label>Liquid Level <span class="unit">(ft)</span></label>
+        <input type="number" id="pre3_level"  value="2"     step="0.5">
+      </div>
+    </div>
+
+    <!-- Set 1 -->
+    <div class="card">
+      <h3>Set 1</h3>
+      <div class="field">
+        <label class="check-label">
+          <input type="checkbox" id="s1_online">
+          Online
+        </label>
+      </div>
+      <div class="field">
+        <label>Exhaust Pressure <span class="unit">(psig)</span></label>
+        <input type="number" id="s1_psig"   value="15"                     step="1">
+      </div>
+      <div class="field">
+        <label>Last Effect Vacuum <span class="unit">(in Hg)</span></label>
+        <input type="number" id="s1_vac"    value="25"                     step="1">
+      </div>
+      <div class="field">
+        <label>Vapor Bleeds v1,v2,v3 <span class="unit">(tph, comma-sep)</span></label>
+        <input type="text"   id="s1_vbleed" value="81, 0, 0">
+      </div>
+      <div class="field">
+        <label>Heating Surface List <span class="unit">(ft², comma-sep)</span></label>
+        <input type="text"   id="s1_hs"     value="25000, 25000, 25000, 25000">
+      </div>
+      <div class="field">
+        <label>Dessin Constant</label>
+        <input type="number" id="s1_dessin" value="18000"                  step="100">
+      </div>
+      <div class="field">
+        <label>Liquid Level <span class="unit">(ft)</span></label>
+        <input type="number" id="s1_level"  value="2"                      step="0.5">
+      </div>
+    </div>
+
+    <!-- Set 2 -->
+    <div class="card">
+      <h3>Set 2</h3>
+      <div class="field">
+        <label class="check-label">
+          <input type="checkbox" id="s2_online">
+          Online
+        </label>
+      </div>
+      <div class="field">
+        <label>Exhaust Pressure <span class="unit">(psig)</span></label>
+        <input type="number" id="s2_psig"   value="15"                     step="1">
+      </div>
+      <div class="field">
+        <label>Last Effect Vacuum <span class="unit">(in Hg)</span></label>
+        <input type="number" id="s2_vac"    value="25"                     step="1">
+      </div>
+      <div class="field">
+        <label>Vapor Bleeds v1,v2,v3 <span class="unit">(tph, comma-sep)</span></label>
+        <input type="text"   id="s2_vbleed" value="0, 0, 0">
+      </div>
+      <div class="field">
+        <label>Heating Surface List <span class="unit">(ft², comma-sep)</span></label>
+        <input type="text"   id="s2_hs"     value="12000, 12000, 12000, 12000">
+      </div>
+      <div class="field">
+        <label>Dessin Constant</label>
+        <input type="number" id="s2_dessin" value="18000"                  step="100">
+      </div>
+      <div class="field">
+        <label>Liquid Level <span class="unit">(ft)</span></label>
+        <input type="number" id="s2_level"  value="2"                      step="0.5">
+      </div>
+    </div>
+
+    <!-- Set 3 -->
+    <div class="card">
+      <h3>Set 3</h3>
+      <div class="field">
+        <label class="check-label">
+          <input type="checkbox" id="s3_online" checked>
+          Online
+        </label>
+      </div>
+      <div class="field">
+        <label>Exhaust Pressure <span class="unit">(psig)</span></label>
+        <input type="number" id="s3_psig"   value="4"                     step="1">
+      </div>
+      <div class="field">
+        <label>Last Effect Vacuum <span class="unit">(in Hg)</span></label>
+        <input type="number" id="s3_vac"    value="25"                     step="1">
+      </div>
+      <div class="field">
+        <label>Vapor Bleeds v1,v2,v3 <span class="unit">(tph, comma-sep)</span></label>
+        <input type="text"   id="s3_vbleed" value="0, 0, 0">
+      </div>
+      <div class="field">
+        <label>Heating Surface List <span class="unit">(ft², comma-sep)</span></label>
+        <input type="text"   id="s3_hs"     value="11000, 9000, 9000">
+      </div>
+      <div class="field">
+        <label>Dessin Constant</label>
+        <input type="number" id="s3_dessin" value="18000"                  step="100">
+      </div>
+      <div class="field">
+        <label>Liquid Level <span class="unit">(ft)</span></label>
+        <input type="number" id="s3_level"  value="2"                      step="0.5">
+      </div>
+    </div>
+
+  </div><!-- /input-grid -->
+
+  <!-- Solve button -->
+  <div class="solve-bar">
+    <button class="btn-solve" onclick="runSolver()">&#9654; Solve</button>
+    <span id="status"></span>
+  </div>
+
+  <!-- Results injected here -->
+  <div id="results"></div>
+
+</div><!-- /container -->
+
+<!-- ═══════════════════════════════════════════════════════════════
+     JAVASCRIPT  —  All logic below
+═══════════════════════════════════════════════════════════════ -->
+<script>
+"use strict";
+
+// ─────────────────────────────────────────────────────────────────
+// 1.  STEAM / THERMODYNAMIC PROPERTY FUNCTIONS
+// ─────────────────────────────────────────────────────────────────
+
+/** Antoine-form saturation temperature (°F). Valid 1–60 psia. */
+function satSteamTemp(p_psia) {
+  const A = 6.239238, B = 2988.801361, C = 377.305590;
+  return B / (A - Math.log10(p_psia)) - C;
+}
+
+/** Latent heat of vaporization (BTU/lb). */
+function getLatentHeat(p_psia) {
+  const t = satSteamTemp(p_psia);
+  return -0.00000152231563 * t**3 + 0.000504774867 * t**2 - 0.634291695987 * t + 1096.29;
+}
+
+/** Specific heat of juice (BTU/lb·°F). */
+function getCp(brix) {
+  return 0.9964 - 0.005656 * brix;
+}
+
+/** BPE from dissolved solids only. */
+function bpeBrix(brix) {
+  return 4.266667 * brix / (100 - brix);
+}
+
+/** BPE from hydrostatic head (lvl in ft). Returns minimum of 1°F. */
+function bpeHead(lvl, brix, t_vap) {
+  const bpoly = 0.99991 + 0.0038008*brix + 0.000012662*brix**2 + 0.00000009596*brix**3;
+  const tpoly = 5.314  - 0.07135*t_vap  + 0.00033908*t_vap**2 - 0.00000055728*t_vap**3;
+  const bpe   = lvl * 6 * bpoly * tpoly;
+  return bpe < 1 ? 1 : bpe;
+}
+
+/** Total BPE (Brix + head). */
+function bpeTotal(lvl, brix, p_vap_psia) {
+  const t_vap = satSteamTemp(p_vap_psia);
+  return bpeBrix(brix) + bpeHead(lvl, brix, t_vap);
+}
+
+/** Linear pressure profile from exhaust to vacuum. Returns (n_eff+1) values. */
+function initialPressureProfile(exh_psig, inHg_vac, n_eff) {
+  const p0  = exh_psig + 14.696;
+  const pf  = (29.92 - inHg_vac) / 29.92 * 14.696;
+  const dp  = (p0 - pf) / n_eff;
+  const out = [p0];
+  for (let i = 1; i <= n_eff; i++) out.push(out[i-1] - dp);
+  return out;
+}
+
+/** Dessin heat-transfer coefficient. */
+function uDessin(brix_out, temp_steam_in, h_fg_vap_out, k_constant) {
+  return (100 - brix_out) * (temp_steam_in - 130) * h_fg_vap_out / k_constant;
+}
+
+/** U from Q = U·A·ΔT. */
+function uCalc(heat_duty, area_ft2, temp_steam_in, temp_liquid) {
+  return heat_duty / (area_ft2 * (temp_steam_in - temp_liquid));
+}
+
+// ─────────────────────────────────────────────────────────────────
+// 2.  SHORTCUT MASS BALANCE
+// ─────────────────────────────────────────────────────────────────
+
+function shortcutEvap(jce_in, jce_brx, syrup_brx, num_effects, v1, v2, v3) {
+  const sol_tph  = jce_in * jce_brx / 100;
+  const syr_tph  = sol_tph * 100 / syrup_brx;
+  const evap_tph = jce_in - syr_tph;
+  const x_factor = (evap_tph - v1 - 2*v2 - 3*v3) / num_effects;
+  const exh_req  = x_factor + v1 + v2 + v3;
+
+  const evap_list = [exh_req, x_factor + v2 + v3, x_factor + v3];
+  if (num_effects > 3) evap_list.push(x_factor);
+  if (num_effects > 4) evap_list.push(x_factor);
+
+  const brix_list = [jce_brx];
+  const flow_list = [jce_in];
+  for (let i = 1; i <= num_effects; i++) {
+    flow_list.push(flow_list[i-1] - evap_list[i-1]);
+    brix_list.push(sol_tph / flow_list[i] * 100);
+  }
+
+  return {
+    sol_tph,
+    evaporated_tph:       evap_tph,
+    exhaust_required_tph: exh_req,
+    brix_list_shortcut:   brix_list,
+    evap_list_shortcut:   evap_list,
+  };
+}
+
+// ─────────────────────────────────────────────────────────────────
+// 3.  MAIN SET SOLVER  (Birkett iterative method)
+// ─────────────────────────────────────────────────────────────────
+
+/**
+ * Solve a single evaporator set.
+ * Returns { rows: Array<Object>, avgURatio: number }
+ */
+function solveSet(name, juice_in_tph, juice_brix, juice_temp, syrup_brix,
+                  v_bld_list, hs_list, exh_psig, last_eff_vac, liq_level,
+                  dessin_constant, inj_wat_temp_in, inj_wat_temp_out) {
+
+  const n_eff = hs_list.length;
+
+  // Guarantee exactly 3 bleed elements for internal use
+  const vbl = [v_bld_list[0]||0, v_bld_list[1]||0, v_bld_list[2]||0];
+
+  const sc = shortcutEvap(juice_in_tph, juice_brix, syrup_brix, n_eff, vbl[0], vbl[1], vbl[2]);
+
+  // ── Initialise thermo arrays ──
+  let press_list   = initialPressureProfile(exh_psig, last_eff_vac, n_eff);
+  let vap_T_list   = [], lat_list = [], cp_list = [], bpe_list = [], liq_T_list = [];
+
+  for (let i = 0; i <= n_eff; i++) {
+    vap_T_list.push(satSteamTemp(press_list[i]));
+    lat_list.push(getLatentHeat(press_list[i]));
+    cp_list.push(getCp(sc.brix_list_shortcut[i]));
+    if (i === 0) {
+      liq_T_list.push(juice_temp);
+      bpe_list.push(0);
+    } else {
+      const bpe = bpeTotal(liq_level, sc.brix_list_shortcut[i], press_list[i]);
+      bpe_list.push(bpe);
+      liq_T_list.push(vap_T_list[i] + bpe);
+    }
+  }
+
+  // Working variables (declared outside loops so last iteration's values survive)
+  let exh_in = sc.exhaust_required_tph;
+  let evap_list_calc, steam_list, juice_list, brix_list;
+  let heat_list, u_des_list, u_calc_list, u_ratio_list;
+
+  // ── Outer loop: 50 pressure-profile adjustment iterations ──
+  for (let iter = 0; iter < 50; iter++) {
+
+    // ── Middle loop: 5 brix/BPE/cp update trials ──
+    for (let trial = 0; trial < 5; trial++) {
+
+      // ── Inner loop: converge exhaust steam rate ──
+      let diff = 1, guard = 0;
+      while ((diff > 1e-5 || diff < -1e-5) && guard < 500) {
+        guard++;
+        evap_list_calc = [];
+        steam_list = [exh_in];
+        juice_list = [juice_in_tph];
+
+        // Effect 1
+        evap_list_calc.push(
+          (exh_in * lat_list[0] - juice_in_tph * cp_list[0] * (liq_T_list[1] - liq_T_list[0]))
+          / lat_list[1]
+        );
+        steam_list.push(evap_list_calc[0] - vbl[0]);
+        juice_list.push(juice_list[0] - evap_list_calc[0]);
+
+        // Effect 2
+        evap_list_calc.push(
+          (steam_list[1] * lat_list[1] - juice_list[1] * cp_list[1] * (liq_T_list[2] - liq_T_list[1]))
+          / lat_list[2]
+        );
+        steam_list.push(evap_list_calc[1] - vbl[1]);
+        juice_list.push(juice_list[1] - evap_list_calc[1]);
+
+        // Effect 3
+        evap_list_calc.push(
+          (steam_list[2] * lat_list[2] - juice_list[2] * cp_list[2] * (liq_T_list[3] - liq_T_list[2]))
+          / lat_list[3]
+        );
+        steam_list.push(evap_list_calc[2] - vbl[2]);
+        juice_list.push(juice_list[2] - evap_list_calc[2]);
+
+        // Effect 4 (optional)
+        if (n_eff > 3) {
+          evap_list_calc.push(
+            (steam_list[3] * lat_list[3] - juice_list[3] * cp_list[3] * (liq_T_list[4] - liq_T_list[3]))
+            / lat_list[4]
+          );
+          steam_list.push(evap_list_calc[3]);
+          juice_list.push(juice_list[3] - evap_list_calc[3]);
+        }
+
+        // Effect 5 (optional)
+        if (n_eff > 4) {
+          evap_list_calc.push(
+            (steam_list[4] * lat_list[4] - juice_list[4] * cp_list[4] * (liq_T_list[5] - liq_T_list[4]))
+            / lat_list[5]
+          );
+          steam_list.push(evap_list_calc[4]);
+          juice_list.push(juice_list[4] - evap_list_calc[4]);
+        }
+
+        diff   = evap_list_calc.reduce((a,b)=>a+b,0) - sc.evaporated_tph;
+        exh_in = exh_in - diff / 8;
+      } // end inner while
+
+      // Update brix profile from converged juice flows
+      brix_list = [juice_brix];
+      for (let i = 0; i < n_eff; i++) brix_list.push(sc.sol_tph / juice_list[i+1] * 100);
+
+      // Rebuild thermo arrays with updated brix
+      vap_T_list = []; lat_list = []; cp_list = []; bpe_list = []; liq_T_list = [];
+      for (let i = 0; i <= n_eff; i++) {
+        vap_T_list.push(satSteamTemp(press_list[i]));
+        lat_list.push(getLatentHeat(press_list[i]));
+        cp_list.push(getCp(brix_list[i]));
+        if (i === 0) {
+          liq_T_list.push(juice_temp);
+          bpe_list.push(0);
+        } else {
+          const bpe = bpeTotal(liq_level, brix_list[i], press_list[i]);
+          bpe_list.push(bpe);
+          liq_T_list.push(vap_T_list[i] + bpe);
+        }
+      }
+    } // end middle loop
+
+    // Compute U-values and adjust pressure profile
+    heat_list    = []; u_des_list  = [];
+    u_calc_list  = []; u_ratio_list = [];
+    const p_last = press_list[press_list.length - 1];
+
+    for (let j = 0; j < steam_list.length - 1; j++) {
+      const q = steam_list[j] * lat_list[j] * 2000;
+      heat_list.push(q);
+      u_des_list.push(uDessin(brix_list[j+1], vap_T_list[j], lat_list[j+1], dessin_constant));
+      u_calc_list.push(uCalc(q, hs_list[j], vap_T_list[j], liq_T_list[j+1]));
+      u_ratio_list.push(u_calc_list[j] / u_des_list[j]);
+    }
+
+    const avg_u = u_ratio_list.reduce((a,b)=>a+b,0) / u_ratio_list.length;
+    for (let k = 0; k < n_eff; k++) {
+      press_list[k+1] *= Math.pow(avg_u / u_ratio_list[k], 0.1);
+    }
+    press_list[press_list.length - 1] = p_last; // restore last-effect vacuum
+
+  } // end outer loop
+
+  // ── Build output pressure labels ──
+  const press_fmt = press_list.map(p => {
+    if (p > 14.696) return `${(p - 14.696).toFixed(2)} psig`;
+    return `${(29.92 - 29.92 * p / 14.696).toFixed(2)} in Hg`;
+  });
+
+  // ── Extend bleed list for output only ──
+  const vbl_out = [...vbl];
+  if (n_eff > 3) vbl_out.push(0);
+  if (n_eff > 4) vbl_out.push(0);
+
+  // ── Derived output values ──
+  const evap_to_hs   = evap_list_calc.map((e,i) => e * 2000 / hs_list[i]);
+  const dessin_evap  = u_des_list.map((ud,i) =>
+    ud * hs_list[i] * (vap_T_list[i] - liq_T_list[i+1]) / lat_list[i+1] / 2000
+  );
+  const inj_tph = evap_list_calc[n_eff-1] * lat_list[n_eff] / (inj_wat_temp_out - inj_wat_temp_in);
+  const inj_gpm = inj_tph * 2000 / 60 / 8.3;
+
+  // ── Assemble one row object per effect ──
+  const rows = [];
+  for (let i = 0; i < n_eff; i++) {
+    rows.push({
+      "Name":                                 i === 0 ? name : "--------",
+      "Effect Number":                        `Effect ${i+1}`,
+      "Steam In (tph)":                       steam_list[i],
+      "Calandria Temp (deg F)":               vap_T_list[i],
+      "Calandria Pressure (psia)":            press_list[i],
+      "Calandria Pressure (psig / in Hg)":   press_fmt[i],
+      "Steam in Latent Heat (btu/lb)":        lat_list[i],
+      "Juice In (tph)":                       juice_list[i],
+      "Brix in":                              brix_list[i],
+      "Juice Temp In (deg F)":               liq_T_list[i],
+      "cp in (btu/lb-F)":                    cp_list[i],
+      "Juice Out (tph)":                      juice_list[i+1],
+      "Brix out":                             brix_list[i+1],
+      "Juice Temp Out (deg F)":              liq_T_list[i+1],
+      "cp out (btu/lb-F)":                   cp_list[i+1],
+      "Evaporated (tph)":                     evap_list_calc[i],
+      "Vapor Bleed (tph)":                    vbl_out[i],
+      "Vapor Pressure (psia)":               press_list[i+1],
+      "Vapor Pressure (psig / in Hg)":       press_fmt[i+1],
+      "Vapor Temperature (deg F)":           vap_T_list[i+1],
+      "Boiling Point Elevation (deg F)":     bpe_list[1],   // matches Python (broadcasts scalar)
+      "Vapor Latent Heat (btu/lb)":          lat_list[i+1],
+      "Heat Duty (btu/hr)":                  heat_list[i],
+      "Heating Surface (ft2)":               hs_list[i],
+      "Evaporation to HS Ratio (lb/ft2)":    evap_to_hs[i],
+      "U calculated (btu/hr-ft2-F)":         u_calc_list[i],
+      "U dessin (btu/hr-ft2-F)":             u_des_list[i],
+      "U ratio":                              u_ratio_list[i],
+      "Dessin Evaporation Rate (tph)":        dessin_evap[i],
+      "--------":                             "--------",
+      "Exhaust Required (lb/hr)":            i === 0 ? exh_in * 2000 : "--------",
+      "Injection Water (gpm)":               i === 0 ? inj_gpm       : "-----",
+      "Injection Water Temp in, out (deg F)": i === 0 ? inj_wat_temp_in
+                                            : i === 1 ? inj_wat_temp_out
+                                            :           "--------",
+    });
+  }
+
+  const avgURatio = u_ratio_list.reduce((a,b)=>a+b,0) / u_ratio_list.length;
+  return { rows, avgURatio };
+}
+
+// ─────────────────────────────────────────────────────────────────
+// 4.  PRE-EVAPORATOR SOLVER  (20-iteration fixed-point)
+// ─────────────────────────────────────────────────────────────────
+
+/**
+ * Returns an object whose enumerable keys mirror the Python Series,
+ * plus hidden _brixOut, _juiceOutTph, _juiceTempOut for downstream use.
+ */
+function preEvap(name, juice_in_tph, juice_in_brix, juice_temp,
+                 exh_psig, vapor_bleed, heat_surface, liquid_level, dessin_constant) {
+
+  const solids_tph    = juice_in_brix * juice_in_tph / 100;
+  const juice_out_tph = juice_in_tph - vapor_bleed;
+  const juice_out_brix= solids_tph / juice_out_tph * 100;
+  const cp_in         = getCp(juice_in_brix);
+  const cp_out        = getCp(juice_out_brix);
+  const caland_press  = exh_psig + 14.696;
+  const caland_temp   = satSteamTemp(caland_press);
+  const caland_lat    = getLatentHeat(caland_press);
+
+  let vap_press = caland_press * 0.7; // initial guess
+  let vap_temp, vap_lat, bpe_juice, liq_temp, u_d_pre, exh_req, heat_duty;
+
+  for (let i = 0; i < 20; i++) {
+    vap_temp  = satSteamTemp(vap_press);
+    vap_lat   = getLatentHeat(vap_press);
+    bpe_juice = bpeTotal(liquid_level, juice_in_brix, vap_press);
+    liq_temp  = vap_temp + bpe_juice;
+    u_d_pre   = uDessin(juice_out_brix, caland_temp, vap_lat, dessin_constant);
+    exh_req   = (juice_in_tph * cp_in * (liq_temp - juice_temp) + vapor_bleed * vap_lat) / caland_lat;
+    heat_duty = exh_req * caland_lat * 2000;
+    const delta_t_m = heat_duty / (u_d_pre * heat_surface);
+    liq_temp  = caland_temp - delta_t_m;
+    vap_temp  = liq_temp - bpe_juice;
+    // Inverse polynomial: pressure from temperature
+    vap_press = 4.29243
+              - 0.117802      * vap_temp
+              + 0.001330114   * vap_temp**2
+              - 0.00000679176 * vap_temp**3
+              + 0.0000000199634 * vap_temp**4;
+  }
+
+  const vap_psig = vap_press - 14.696;
+
+  return {
+    "Name":                          name,
+    "Pre Evaporator":               "Pre Evaporator",
+    "Steam In (tph)":               exh_req,
+    "Calandria Temp (deg F)":       caland_temp,
+    "Calandria Pressure (psia)":    caland_press,
+    "Calandria Pressure (psig)":    exh_psig,
+    "Steam in Latent Heat (btu/lb)":caland_lat,
+    "Juice In (tph)":               juice_in_tph,
+    "Brix in":                      juice_in_brix,
+    "Juice Temp In (deg F)":       juice_temp,
+    "cp in (btu/lb-F)":            cp_in,
+    "Juice Out (tph)":              juice_out_tph,
+    "Brix out":                     juice_out_brix,
+    "Juice Temp Out (deg F)":      liq_temp,
+    "cp out (btu/lb-F)":           cp_out,
+    "Evaporated (tph)":             vapor_bleed,
+    "Vapor Bleed (tph)":            vapor_bleed,
+    "Vapor Pressure (psia)":       vap_press,
+    "Vapor Pressure (psig)":       vap_psig,
+    "Vapor Temperature (deg F)":   vap_temp,
+    "Vapor Latent Heat (btu/lb)":  vap_lat,
+    "Heat Duty (btu/hr)":          heat_duty,
+    "Heating Surface (ft2)":       heat_surface,
+    "U dessin (btu/hr-ft2-F)":     u_d_pre,
+    "--------":                     "--------",
+    "Exhaust Required (lb/hr)":    exh_req * 2000,
+    // Internal fields (not rendered in table)
+    _brixOut:     juice_out_brix,
+    _juiceOutTph: juice_out_tph,
+    _juiceTempOut: liq_temp,
+  };
+}
+
+// ─────────────────────────────────────────────────────────────────
+// 5.  NEWTON'S METHOD OPTIMIZER  (replaces scipy.optimize.fsolve)
+// ─────────────────────────────────────────────────────────────────
+
+/** Solve 2×2 linear system Ax = b via Cramer's rule. Returns null if singular. */
+function solve2x2(A, b) {
+  const det = A[0][0]*A[1][1] - A[0][1]*A[1][0];
+  if (Math.abs(det) < 1e-14) return null;
+  return [
+    (b[0]*A[1][1] - b[1]*A[0][1]) / det,
+    (A[0][0]*b[1] - A[1][0]*b[0]) / det,
+  ];
+}
+
+/**
+ * Newton's method with numerical Jacobian.
+ * Supports 1-D (secant-Newton) or 2-D systems.
+ * Returns { params, converged, iters }.
+ */
+function fsolveNewton(objectiveFn, initialGuess, tol=1e-8, maxIter=100) {
+  const n = initialGuess.length;
+  let x   = [...initialGuess];
+  const h = 1e-5;
+
+  for (let iter = 0; iter < maxIter; iter++) {
+    const f    = objectiveFn(x);
+    const norm = Math.sqrt(f.reduce((s,v) => s + v*v, 0));
+    if (norm < tol) return { params: x, converged: true, iters: iter+1 };
+
+    // Numerical Jacobian — column-by-column finite differences
+    const Jcols = [];
+    for (let j = 0; j < n; j++) {
+      const xp = [...x]; xp[j] += h;
+      const fp = objectiveFn(xp);
+      Jcols.push(fp.map((v,i) => (v - f[i]) / h));
+    }
+    // Convert to row-major: J_row[i][j] = ∂f_i/∂x_j
+    const J = Array.from({length: n}, (_, i) => Jcols.map(col => col[i]));
+
+    let dx;
+    if (n === 1) {
+      if (Math.abs(J[0][0]) < 1e-14) break;
+      dx = [-f[0] / J[0][0]];
+    } else {
+      dx = solve2x2(J, f.map(v => -v));
+      if (!dx) break;
+    }
+    x = x.map((v,i) => v + dx[i]);
+  }
+
+  // Final residual check with relaxed tolerance
+  const f_fin  = objectiveFn(x);
+  const norm_f = Math.sqrt(f_fin.reduce((s,v) => s + v*v, 0));
+  return { params: x, converged: norm_f < 1e-6, iters: maxIter };
+}
+
+// ─────────────────────────────────────────────────────────────────
+// 6.  NUMBER FORMATTER
+// ─────────────────────────────────────────────────────────────────
+
+function fmt(val) {
+  if (val === null || val === undefined) return '';
+  if (typeof val !== 'number' || !isFinite(val) || isNaN(val)) return String(val);
+  if (val === 0) return '0';
+  const abs = Math.abs(val);
+  if (abs >= 1e7)   return val.toLocaleString('en-US', {maximumFractionDigits: 0});
+  if (abs >= 1e4)   return val.toLocaleString('en-US', {minimumFractionDigits: 2, maximumFractionDigits: 2});
+  if (abs >= 1)     return val.toFixed(4);
+  if (abs >= 1e-4)  return val.toFixed(6);
+  return val.toExponential(4);
+}
+
+// ─────────────────────────────────────────────────────────────────
+// 7.  RENDERING
+// ─────────────────────────────────────────────────────────────────
+
+function renderPreEvapTable(data) {
+  let html = '<div class="result-card"><h2>Pre-Evaporator</h2>';
+  html += '<div class="result-table-wrap"><table>';
+  html += '<thead><tr><th>Parameter</th><th>Value</th></tr></thead><tbody>';
+  for (const [k, v] of Object.entries(data)) {
+    if (k.startsWith('_')) continue; // skip internal fields
+    const isSep = k === '--------';
+    const isHi  = k.includes('Exhaust Required');
+    const cls   = isSep ? 'sep-row' : isHi ? 'hi-row' : '';
+    html += `<tr class="${cls}"><td>${isSep ? '' : k}</td><td>${fmt(v)}</td></tr>`;
+  }
+  html += '</tbody></table></div></div>';
+  return html;
+}
+
+function renderSetTable(name, result) {
+  const { rows, avgURatio } = result;
+  if (!rows || rows.length === 0) return '';
+  const keys  = Object.keys(rows[0]);
+  const n_eff = rows.length;
+
+  let html = `<div class="result-card">`;
+  html += `<h2>${name}</h2>`;
+  html += `<p class="meta">Effects: ${n_eff} &nbsp;|&nbsp; Mean U-Ratio: <strong>${avgURatio.toFixed(4)}</strong></p>`;
+  html += '<div class="result-table-wrap"><table>';
+
+  // Header row
+  html += '<thead><tr><th>Parameter</th>';
+  for (let i = 0; i < n_eff; i++) html += `<th>Effect ${i+1}</th>`;
+  html += '</tr></thead><tbody>';
+
+  // One row per parameter
+  for (const key of keys) {
+    const isSep = key === '--------';
+    const isHi  = key.includes('Exhaust Required');
+    const cls   = isSep ? 'sep-row' : isHi ? 'hi-row' : '';
+    html += `<tr class="${cls}"><td>${isSep ? '' : key}</td>`;
+    for (const row of rows) html += `<td>${fmt(row[key])}</td>`;
+    html += '</tr>';
+  }
+
+  html += '</tbody></table></div></div>';
+  return html;
+}
+
+// ─────────────────────────────────────────────────────────────────
+// 8.  INPUT HELPERS
+// ─────────────────────────────────────────────────────────────────
+
+function parseList(str) {
+  return str.split(',').map(s => parseFloat(s.trim())).filter(v => !isNaN(v));
+}
+
+function g(id) { return parseFloat(document.getElementById(id).value); }
+function gc(id){ return document.getElementById(id).checked; }
+function gt(id){ return document.getElementById(id).value; }
+
+// ─────────────────────────────────────────────────────────────────
+// 9.  MAIN ENTRY POINT
+// ─────────────────────────────────────────────────────────────────
+
+function runSolver() {
+  const t0       = performance.now();
+  const statusEl = document.getElementById('status');
+  const resultsEl= document.getElementById('results');
+  statusEl.textContent = 'Solving\u2026';
+  resultsEl.innerHTML  = '';
+
+  try {
+    // ── Read all form inputs ──
+    const cj_tph    = g('cj_tph');
+    const cj_brix   = g('cj_brix');
+    const cj_temp   = g('cj_temp');
+    const syr_brix  = g('syrup_brix');
+    const inj_in    = g('inj_in');
+    const inj_out   = g('inj_out');
+
+    const pre3_on     = gc('pre3_online');
+    const pre3_psig   = g('pre3_psig');
+    const pre3_bleed  = g('pre3_bleed');
+    const pre3_hs     = g('pre3_hs');
+    const pre3_dessin = g('pre3_dessin');
+    const pre3_level  = g('pre3_level');
+
+    const s1_on     = gc('s1_online');
+    const s1_psig   = g('s1_psig');
+    const s1_vac    = g('s1_vac');
+    const s1_vbleed = parseList(gt('s1_vbleed'));
+    const s1_hs     = parseList(gt('s1_hs'));
+    const s1_dessin = g('s1_dessin');
+    const s1_level  = g('s1_level');
+
+    const s2_on     = gc('s2_online');
+    const s2_psig   = g('s2_psig');
+    const s2_vac    = g('s2_vac');
+    const s2_vbleed = parseList(gt('s2_vbleed'));
+    const s2_hs     = parseList(gt('s2_hs'));
+    const s2_dessin = g('s2_dessin');
+    const s2_level  = g('s2_level');
+
+    const s3_on     = gc('s3_online');
+    const s3_psig   = g('s3_psig');
+    const s3_vac    = g('s3_vac');
+    const s3_vbleed = parseList(gt('s3_vbleed'));
+    const s3_hs     = parseList(gt('s3_hs'));
+    const s3_dessin = g('s3_dessin');
+    const s3_level  = g('s3_level');
+
+    // ── Pre-evaporator ──
+    let df_pre3       = null;
+    let brix_for_sets = cj_brix;
+    let temp_for_sets = cj_temp;
+    let juice_for_sets= cj_tph;
+
+    if (pre3_on) {
+      df_pre3        = preEvap("Pre Evaporator 3", cj_tph, cj_brix, cj_temp,
+                               pre3_psig, pre3_bleed, pre3_hs, pre3_level, pre3_dessin);
+      brix_for_sets  = df_pre3._brixOut;
+      temp_for_sets  = df_pre3._juiceTempOut;
+      juice_for_sets = df_pre3._juiceOutTph;
+    }
+
+    // ── Set configurations ──
+    const setCfgs = [
+      { name:"Set 1", on:s1_on, psig:s1_psig, vac:s1_vac, vbl:s1_vbleed, hs:s1_hs, des:s1_dessin, lvl:s1_level },
+      { name:"Set 2", on:s2_on, psig:s2_psig, vac:s2_vac, vbl:s2_vbleed, hs:s2_hs, des:s2_dessin, lvl:s2_level },
+      { name:"Set 3", on:s3_on, psig:s3_psig, vac:s3_vac, vbl:s3_vbleed, hs:s3_hs, des:s3_dessin, lvl:s3_level },
+    ];
+
+    const activeIdx  = setCfgs.map((c,i) => c.on ? i : -1).filter(i => i >= 0);
+    const numActive  = activeIdx.length;
+
+    // ── Objective: pairwise mean-U-ratio differences → 0 ──
+    function objectiveFn(trial_params) {
+      const fracs = [0, 0, 0];
+      if (numActive > 1) {
+        for (let i = 0; i < numActive - 1; i++) fracs[activeIdx[i]] = trial_params[i];
+        fracs[activeIdx[numActive-1]] = 1 - trial_params.reduce((a,b)=>a+b, 0);
+      } else if (numActive === 1) {
+        fracs[activeIdx[0]] = 1;
+      }
+
+      const uMap = {};
+      for (const i of activeIdx) {
+        const c = setCfgs[i];
+        const r = solveSet(c.name, fracs[i]*juice_for_sets,
+                           brix_for_sets, temp_for_sets, syr_brix,
+                           c.vbl, c.hs, c.psig, c.vac, c.lvl,
+                           c.des, inj_in, inj_out);
+        uMap[i] = r.avgURatio;
+      }
+
+      const uList = activeIdx.map(i => uMap[i]);
+      return uList.slice(0,-1).map((u,i) => u - uList[i+1]);
+    }
+
+    // ── Optimise juice distribution ──
+    let finalFracs  = [0, 0, 0];
+    let converged   = true;
+    let convMsg     = '';
+
+    if (numActive === 0) {
+      converged = false;
+      convMsg   = 'No sets are online — nothing to solve.';
+    } else if (numActive === 1) {
+      finalFracs[activeIdx[0]] = 1;
+      convMsg = 'Single set online — no juice-split optimisation needed.';
+    } else {
+      const guess = Array(numActive - 1).fill(1 / numActive);
+      const opt   = fsolveNewton(objectiveFn, guess);
+      converged   = opt.converged;
+      for (let i = 0; i < numActive - 1; i++) finalFracs[activeIdx[i]] = opt.params[i];
+      finalFracs[activeIdx[numActive-1]] = 1 - opt.params.reduce((a,b)=>a+b, 0);
+      convMsg = converged
+        ? `Optimizer converged in ${opt.iters} Newton iteration(s).`
+        : `Optimizer did not fully converge after ${opt.iters} iterations — results may be approximate.`;
+    }
+
+    // ── Final solve at optimised juice fractions ──
+    const dfSets = [null, null, null];
+    for (const i of activeIdx) {
+      const c = setCfgs[i];
+      dfSets[i] = solveSet(c.name, finalFracs[i] * juice_for_sets,
+                           brix_for_sets, temp_for_sets, syr_brix,
+                           c.vbl, c.hs, c.psig, c.vac, c.lvl,
+                           c.des, inj_in, inj_out);
+    }
+
+    const elapsed = ((performance.now() - t0) / 1000).toFixed(4);
+
+    // ── Render ──
+    let html = '';
+
+    // Convergence banner
+    const bannerCls = numActive === 0 ? 'conv-fail' : converged ? 'conv-ok' : 'conv-fail';
+    html += `<div class="${bannerCls}">${convMsg}</div>`;
+
+    // Juice split summary (when multiple sets active)
+    if (numActive > 1) {
+      let splitHtml = '<div class="result-card"><h2>Juice Distribution</h2>';
+      splitHtml += '<div class="result-table-wrap"><table>';
+      splitHtml += '<thead><tr><th>Set</th><th>Fraction</th><th>Flow (tph)</th><th>Mean U-Ratio</th></tr></thead><tbody>';
+      for (const i of activeIdx) {
+        const f = finalFracs[i];
+        const u = dfSets[i] ? dfSets[i].avgURatio.toFixed(4) : '—';
+        splitHtml += `<tr><td>${setCfgs[i].name}</td><td>${(f*100).toFixed(2)}%</td>`
+                   + `<td>${(f*juice_for_sets).toFixed(2)}</td><td>${u}</td></tr>`;
+      }
+      splitHtml += '</tbody></table></div></div>';
+      html += splitHtml;
+    }
+
+    if (df_pre3) html += renderPreEvapTable(df_pre3);
+    for (let i = 0; i < 3; i++) {
+      if (dfSets[i]) html += renderSetTable(setCfgs[i].name, dfSets[i]);
+    }
+
+    html += `<div class="elapsed">Elapsed: ${elapsed} s</div>`;
+
+    resultsEl.innerHTML = html;
+    statusEl.textContent = `Done in ${elapsed} s`;
+
+  } catch (err) {
+    statusEl.textContent = 'Error — see results panel.';
+    resultsEl.innerHTML  =
+      `<div class="conv-fail"><strong>Error:</strong> ${err.message}<br>`
+    + `<pre style="margin-top:.5rem;font-size:.75rem;white-space:pre-wrap;">${err.stack}</pre></div>`;
+  }
+}
+</script>
+</body>
+</html>
